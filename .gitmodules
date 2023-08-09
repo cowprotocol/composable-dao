@@ -7,3 +7,6 @@
 [submodule "lib/composable"]
 	path = lib/composable
 	url = https://github.com/cowprotocol/composable-cow
+[submodule "lib/safe"]
+	path = lib/safe
+	url = https://github.com/rndlabs/safe-contracts
