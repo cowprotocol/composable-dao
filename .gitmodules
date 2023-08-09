@@ -4,3 +4,6 @@
 [submodule "lib/nounsdao"]
 	path = lib/nounsdao
 	url = https://github.com/nounsDAO/nouns-monorepo
+[submodule "lib/composable"]
+	path = lib/composable
+	url = https://github.com/cowprotocol/composable-cow
