@@ -13,3 +13,6 @@
 [submodule "lib/openzeppelin"]
 	path = lib/openzeppelin
 	url = https://github.com/openzeppelin/openzeppelin-contracts
+[submodule "lib/byteslib"]
+	path = lib/byteslib
+	url = https://github.com/GNSPS/solidity-bytes-utils
