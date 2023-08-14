@@ -111,13 +111,16 @@ contract ProposalTest is Test {
     bytes32 constant SALT_NONCE = keccak256("moo");
     uint256 constant MAX_BPS = 10000;
 
+    bytes32 constant CONDITIONAL_ORDER_SALT = keccak256("cows love nouns");
+    bytes32 constant TWAP_APPDATA = keccak256("need some cool appdata");
+
     /**
      * Customise this function for the order you want to create for the proposal.
      */
     function getOrder() internal view returns (IConditionalOrder.ConditionalOrderParams memory) {
         return IConditionalOrder.ConditionalOrderParams({
             handler: IConditionalOrder(address(twap)),
-            salt: keccak256("cows love nouns"),
+            salt: CONDITIONAL_ORDER_SALT,
             staticInput: abi.encode(
                 TWAPOrder.Data({
                     sellToken: IERC20(address(wstETH)),
@@ -129,7 +132,7 @@ contract ProposalTest is Test {
                     n: NUM_PARTS,
                     t: PART_DURATION,
                     span: 0,
-                    appData: keccak256("need some cool appdata") // TODO: verify the appdata that we need here
+                    appData: TWAP_APPDATA
                 })
                 )
         });
@@ -215,6 +218,11 @@ contract ProposalTest is Test {
         vm.stopPrank();
 
         vm.roll(block.number + 1);
+
+        // Output the calldata as a string for easy copy-paste
+        console2.logBytes(
+            abi.encodeWithSelector(dao.propose.selector, targets, values, signatures, calldatas, description)
+        );
 
         // Can use our own account and ram it through now!
         uint256 proposalId = dao.propose(targets, values, signatures, calldatas, description);
