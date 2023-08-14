@@ -99,120 +99,125 @@ contract ProposalTest is Test {
         bytes[] memory calldatas = new bytes[](6);
         string memory description = "Swap 500 wstETH for rETH";
 
-        bytes memory tempData;
-
-        // all values are zero, set them to zero explicitly
-        for (uint256 i = 0; i < values.length; i++) {
-            values[i] = 0;
-        }
-
         (bytes memory initializer, address pendingSafe) = getSafe(address(timelock), SALT_NONCE);
         uint256 stETHAmount = IWstETH(wstETH).getStETHByWstETH(tradeSize());
 
         // 1. Approve the required amount of stETH required to wrap into wstETH
-        targets[0] = address(stETH);
-        signatures[0] = "approve(address,uint256)";
-        tempData = abi.encodeWithSelector(
-            IERC20.approve.selector,
-            wstETH,
-            stETHAmount
+        (targets[0], values[0], signatures[0], calldatas[0]) = interactionHelper(
+            address(stETH),
+            0,
+            "approve(address,uint256)",
+            abi.encodeWithSelector(
+                IERC20.approve.selector,
+                wstETH,
+                stETHAmount
+            )
         );
-        calldatas[0] = BytesLib.slice(tempData, 4, tempData.length - 4);
 
         // 2. Wrap stETH into wstETH
-        targets[1] = address(wstETH);
-        signatures[1] = "wrap(uint256)";
-        tempData = abi.encodeWithSelector(
-            IWstETH.wrap.selector,
-            stETHAmount
+        (targets[1], values[1], signatures[1], calldatas[1]) = interactionHelper(
+            address(wstETH),
+            0,
+            "wrap(uint256)",
+            abi.encodeWithSelector(
+                IWstETH.wrap.selector,
+                stETHAmount
+            )
         );
-        calldatas[1] = BytesLib.slice(tempData, 4, tempData.length - 4);
 
         // 3. Approve the to-be-created `Safe` contract to use the wstETH
-        targets[2] = address(wstETH);
-        signatures[2] = "approve(address,uint256)";
-        tempData = abi.encodeWithSelector(
-            IERC20.approve.selector,
-            pendingSafe,
-            tradeSize()
+        (targets[2], values[2], signatures[2], calldatas[2]) = interactionHelper(
+            address(wstETH),
+            0,
+            "approve(address,uint256)",
+            abi.encodeWithSelector(
+                IERC20.approve.selector,
+                pendingSafe,
+                tradeSize()
+            )
         );
-        calldatas[2] = BytesLib.slice(tempData, 4, tempData.length - 4);
 
         // 4. Create the safe
-        targets[3] = address(safeFactory);
-        signatures[3] = "createProxyWithNonce(address,bytes,uint256)";
-        tempData = abi.encodeWithSelector(
-            SafeProxyFactory.createProxyWithNonce.selector,
-            address(safeSingleton),
-            initializer,
-            uint256(SALT_NONCE)
+        (targets[3], values[3], signatures[3], calldatas[3]) = interactionHelper(
+            address(safeFactory),
+            0,
+            "createProxyWithNonce(address,bytes,uint256)",
+            abi.encodeWithSelector(
+                SafeProxyFactory.createProxyWithNonce.selector,
+                address(safeSingleton),
+                initializer,
+                uint256(SALT_NONCE)
+            )
         );
-        calldatas[3] = BytesLib.slice(tempData, 4, tempData.length - 4);
 
         // 5. Configure the safe and create the TWAP
         bytes[] memory safeConfig = configureSafe(address(pendingSafe));
-        targets[4] = address(pendingSafe);
-        signatures[4] = "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)";
-        tempData = abi.encodeWithSelector(
-            Safe.execTransaction.selector,
-            address(multisend),
+        (targets[4], values[4], signatures[4], calldatas[4]) = interactionHelper(
+            address(pendingSafe),
             0,
+            "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
             abi.encodeWithSelector(
-                MultiSend.multiSend.selector,
-                abi.encodePacked(
-                    // 1. Set the domainVerifier
+                Safe.execTransaction.selector,
+                address(multisend),
+                0,
+                abi.encodeWithSelector(
+                    MultiSend.multiSend.selector,
                     abi.encodePacked(
-                        uint8(Enum.Operation.Call),
-                        address(pendingSafe),
-                        uint256(0),
-                        safeConfig[0].length,
-                        safeConfig[0]
-                    ),
-                    // 2. Set the allowance on wstETH for `GPv2VaultRelayer`
-                    abi.encodePacked(
-                        uint8(Enum.Operation.Call),
-                        address(wstETH),
-                        uint256(0),
-                        safeConfig[1].length,
-                        safeConfig[1]
-                    ),
-                    // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
-                    abi.encodePacked(
-                        uint8(Enum.Operation.Call),
-                        address(wstETH),
-                        uint256(0),
-                        safeConfig[2].length,
-                        safeConfig[2]
-                    ),
-                    // 4. Create the order
-                    abi.encodePacked(
-                        uint8(Enum.Operation.Call),
-                        address(ccow),
-                        uint256(0),
-                        safeConfig[3].length,
-                        safeConfig[3]
+                        // 1. Set the domainVerifier
+                        abi.encodePacked(
+                            uint8(Enum.Operation.Call),
+                            address(pendingSafe),
+                            uint256(0),
+                            safeConfig[0].length,
+                            safeConfig[0]
+                        ),
+                        // 2. Set the allowance on wstETH for `GPv2VaultRelayer`
+                        abi.encodePacked(
+                            uint8(Enum.Operation.Call),
+                            address(wstETH),
+                            uint256(0),
+                            safeConfig[1].length,
+                            safeConfig[1]
+                        ),
+                        // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
+                        abi.encodePacked(
+                            uint8(Enum.Operation.Call),
+                            address(wstETH),
+                            uint256(0),
+                            safeConfig[2].length,
+                            safeConfig[2]
+                        ),
+                        // 4. Create the order
+                        abi.encodePacked(
+                            uint8(Enum.Operation.Call),
+                            address(ccow),
+                            uint256(0),
+                            safeConfig[3].length,
+                            safeConfig[3]
+                        )
                     )
-                )
-            ),
-            Enum.Operation.DelegateCall,
-            0,
-            0,
-            0,
-            address(0),
-            payable(0),
-            abi.encodePacked(bytes32(uint256(uint160(address(timelock)))), bytes32(0), bytes1(uint8(1)))
+                ),
+                Enum.Operation.DelegateCall,
+                0,
+                0,
+                0,
+                address(0),
+                payable(0),
+                abi.encodePacked(bytes32(uint256(uint160(address(timelock)))), bytes32(0), bytes1(uint8(1)))
+            )
         );
-        calldatas[4] = BytesLib.slice(tempData, 4, tempData.length - 4);
 
-        // 6. Enforce that the allowance for `wstETH` to be spent from the timelock controller is set back to zero
-        targets[5] = address(wstETH);
-        signatures[5] = "approve(address,uint256)";
-        tempData = abi.encodeWithSelector(
-            IERC20.approve.selector,
-            pendingSafe,
-            0
+        // 6. Enforce that the allowance for `wstETH` that can be spent from the timelock controller is set back to zero
+        (targets[5], values[5], signatures[5], calldatas[5]) = interactionHelper(
+            address(wstETH),
+            0,
+            "approve(address,uint256)",
+            abi.encodeWithSelector(
+                IERC20.approve.selector,
+                pendingSafe,
+                0
+            )
         );
-        calldatas[5] = BytesLib.slice(tempData, 4, tempData.length - 4);
 
         // Before we propose, set a fake low proposal threshold
         vm.startPrank(address(timelock));
@@ -385,6 +390,15 @@ contract ProposalTest is Test {
         address pendingSafe = computeSafeAddress(initializer, nonce);
 
         return (initializer, pendingSafe);
+    }
+
+    function interactionHelper(address target, uint256 value, string memory signature, bytes memory cd) internal pure returns(address, uint256, string memory, bytes memory) {
+        return (
+            target,
+            value,
+            signature,
+            BytesLib.slice(cd, 4, cd.length - 4) // trim the selector
+        );
     }
 
     function configureSafe(address safe) internal view returns (bytes[] memory config) {
