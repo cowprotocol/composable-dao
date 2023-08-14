@@ -61,20 +61,37 @@ IERC20Metadata constant stETH = IERC20Metadata(0xae7ab96520DE3A18E5e111B5EaAb095
 IERC20Metadata constant rETH = IERC20Metadata(0xae78736Cd615f374D3085123A210448E74Fc6393);
 
 contract ProposalTest is Test {
+    // --- types
+
+    struct ConfigSafe {
+        address safe;
+        address sellToken;
+        uint256 sellAmount;
+        address source;
+        IConditionalOrder.ConditionalOrderParams params;
+        address contextFactory;
+        bytes contextFactoryPayload;
+        bool postInit;
+    }
+
     // Want to demonstrate setting up a vote and executing a swap of 500 wstETH to rETH
-    // 1. Approve the required amount of stETH required to wrap into wstETH
+    // 1. Approve the required amount of stETH to wrap into wstETH
     // 2. Wrap stETH into wstETH
-    // 3. Create the `ComposableCoW` compatible `Safe` contract with:
+    // 3. Approve the to-be-created `Safe` (in pt. 4) to use the DAO's wstETH
+    // 4. Create the `ComposableCoW` compatible `Safe` contract with:
     //   - `threshold` of 1
     //   - `owner` set to the `NounsDAOExecutor` address (ie. all executions on the `Safe` are bound by timelock)
-    // 4. Send the wstETH from (2) to the `Safe` contract from (3).
-    // 5. Approve the `GPv2VaultRelayer` to use `wstETH` from (4) to trade.
-    // 6. Call `createWithContext` on `ComposableCoW` via the `Safe` contract from (3) with:
-    //   - `sellToken` set to the wstETH address
-    //   - `buyToken` set to the rETH address
-    //   - `sellAmount` set to 500
-    //   - `buyAmount` TBD
-    //   - `receiver` set to the `NounsDAOExecutor` address (all funds on swap move to the timelock)
+    // 5. Execute post-Safe creation configuration and create conditional order:
+    //    a. Set `ComposableCoW` as the domain verifier for `GPv2Settlement`
+    //    b. Set an allowance for `GPv2VaultRelayer` to use the wstETH from the `Safe` contract
+    //    c. Do `transferFrom` of the wstETH to the `Safe` contract
+    //    d. Create the TWAP order on `ComposableCoW` via the `Safe` contract
+    //       - `sellToken` set to the wstETH address
+    //       - `buyToken` set to the rETH address
+    //       - `sellAmount` set to 500 wstETH
+    //       - `buyAmount` TBD
+    //       - `receiver` set to the `NounsDAOExecutor` address (all funds on swap move to the timelock)
+    // 6. Enforce that the allowance for `wstETH` to be spent from the timelock controller is set back to zero
     //
     // Risks: If a discrete order fails, that part of the swap will be left in the `Safe` contract.
     //        Funds are still retrievable, however as the `Safe` contract is owned by the `NounsDAOExecutor`
@@ -85,12 +102,38 @@ contract ProposalTest is Test {
     //    This means we use `vm.prank` to impersonate the `NounsDAOExecutor` and execute the swap.
     // 2. Create the proposal calldata.
 
+    // --- constants
+
     uint256 constant TOTAL_SELL = 500;
-    uint256 constant TOTAL_BUY_FACTOR = 10380; // in BPS, 1wstETH = 1.038 rETH
+    uint256 constant TOTAL_BUY_FACTOR = 10380; // TODO: in BPS, 1wstETH = 1.038 rETH
     uint256 constant NUM_PARTS = 5;
     uint256 constant PART_DURATION = 2 hours;
     bytes32 constant SALT_NONCE = keccak256("moo");
     uint256 constant MAX_BPS = 10000;
+
+    /**
+     * Customise this function for the order you want to create for the proposal.
+     */
+    function getOrder() internal view returns (IConditionalOrder.ConditionalOrderParams memory) {
+        return IConditionalOrder.ConditionalOrderParams({
+            handler: IConditionalOrder(address(twap)),
+            salt: keccak256("cows love nouns"),
+            staticInput: abi.encode(
+                TWAPOrder.Data({
+                    sellToken: IERC20(address(wstETH)),
+                    buyToken: IERC20(address(rETH)),
+                    receiver: address(timelock), // all funds go back to the timelock
+                    partSellAmount: tradeSize() / NUM_PARTS,
+                    minPartLimit: minBuyLimit() / NUM_PARTS, // minimum amount of rETH we want to get back per part
+                    t0: uint256(0), // setting this to zero commands block time at mining of proposal execution
+                    n: NUM_PARTS,
+                    t: PART_DURATION,
+                    span: 0,
+                    appData: keccak256("need some cool appdata") // TODO: verify the appdata that we need here
+                })
+                )
+        });
+    }
 
     function testSwap_FromProposal() public {
         address[] memory targets = new address[](6);
@@ -134,48 +177,17 @@ contract ProposalTest is Test {
         );
 
         // 5. Configure the safe and create the TWAP
-        bytes[] memory safeConfig = configureSafe(address(pendingSafe));
-        (targets[4], values[4], signatures[4], calldatas[4]) = interactionHelper(
-            address(pendingSafe),
-            0,
-            "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
-            abi.encodeWithSelector(
-                Safe.execTransaction.selector,
-                address(multisend),
-                0,
-                abi.encodeWithSelector(
-                    MultiSend.multiSend.selector,
-                    abi.encodePacked(
-                        // 1. Set the domainVerifier
-                        abi.encodePacked(
-                            uint8(Enum.Operation.Call),
-                            address(pendingSafe),
-                            uint256(0),
-                            safeConfig[0].length,
-                            safeConfig[0]
-                        ),
-                        // 2. Set the allowance on wstETH for `GPv2VaultRelayer`
-                        abi.encodePacked(
-                            uint8(Enum.Operation.Call), address(wstETH), uint256(0), safeConfig[1].length, safeConfig[1]
-                        ),
-                        // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
-                        abi.encodePacked(
-                            uint8(Enum.Operation.Call), address(wstETH), uint256(0), safeConfig[2].length, safeConfig[2]
-                        ),
-                        // 4. Create the order
-                        abi.encodePacked(
-                            uint8(Enum.Operation.Call), address(ccow), uint256(0), safeConfig[3].length, safeConfig[3]
-                        )
-                    )
-                ),
-                Enum.Operation.DelegateCall,
-                0,
-                0,
-                0,
-                address(0),
-                payable(0),
-                abi.encodePacked(bytes32(uint256(uint160(address(timelock)))), bytes32(0), bytes1(uint8(1)))
-            )
+        (targets[4], values[4], signatures[4], calldatas[4]) = configSafe(
+            ConfigSafe({
+                safe: pendingSafe,
+                sellToken: wstETH,
+                sellAmount: tradeSize(),
+                source: address(timelock),
+                params: getOrder(),
+                contextFactory: address(contextFactory),
+                contextFactoryPayload: bytes(""),
+                postInit: true
+            })
         );
 
         // 6. Enforce that the allowance for `wstETH` that can be spent from the timelock controller is set back to zero
@@ -258,40 +270,22 @@ contract ProposalTest is Test {
         //   c. Do `transferFrom` of the wstETH to the `Safe` contract
         //   d. Create the TWAP order on `ComposableCoW` via the `Safe` contract
 
-        bytes[] memory safeConfig = configureSafe(address(safe));
-
-        Safe(payable(address(safe))).execTransaction(
-            address(multisend),
-            0,
-            abi.encodeWithSelector(
-                MultiSend.multiSend.selector,
-                abi.encodePacked(
-                    // 1. Set the domainVerifier
-                    abi.encodePacked(
-                        uint8(Enum.Operation.Call), address(safe), uint256(0), safeConfig[0].length, safeConfig[0]
-                    ),
-                    // 2. Set the allowance on wstETH for `GPv2VaultRelayer`
-                    abi.encodePacked(
-                        uint8(Enum.Operation.Call), address(wstETH), uint256(0), safeConfig[1].length, safeConfig[1]
-                    ),
-                    // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
-                    abi.encodePacked(
-                        uint8(Enum.Operation.Call), address(wstETH), uint256(0), safeConfig[2].length, safeConfig[2]
-                    ),
-                    // 4. Create the order
-                    abi.encodePacked(
-                        uint8(Enum.Operation.Call), address(ccow), uint256(0), safeConfig[3].length, safeConfig[3]
-                    )
-                )
-            ),
-            Enum.Operation.DelegateCall,
-            0,
-            0,
-            0,
-            address(0),
-            payable(0),
-            abi.encodePacked(bytes32(uint256(uint160(address(timelock)))), bytes32(0), bytes1(uint8(1))) // special signature here as called directly from owner with threshold 1
+        (address toSafe, uint256 value, string memory signature, bytes memory cd) = configSafe(
+            ConfigSafe({
+                safe: pendingSafe,
+                sellToken: wstETH,
+                sellAmount: tradeSize(),
+                source: address(timelock),
+                params: getOrder(),
+                contextFactory: address(contextFactory),
+                contextFactoryPayload: bytes(""),
+                postInit: true
+            })
         );
+
+        (bool success,) =
+            address(toSafe).call{value: value}(abi.encodePacked(bytes4(keccak256(abi.encodePacked(signature))), cd));
+        assertEq(success, true);
 
         // 6. Enforce that the allowance for `wstETH` to be spent from the timelock controller is set back to zero
         IERC20(wstETH).approve(pendingSafe, 0);
@@ -299,10 +293,10 @@ contract ProposalTest is Test {
         assertEq(IERC20(wstETH).allowance(address(timelock), address(safe)), 0);
     }
 
-    function testReadyForProd() public {
+    function testReadyForProd() public pure {
         // 1. Check all TODO comments in the codebase
         // 2. Verify swap rates.
-        assertEq(uint256(1), uint256(0));
+        require(1 == 0, "todo items not fixed");
     }
 
     /**
@@ -333,6 +327,103 @@ contract ProposalTest is Test {
         return (initializer, pendingSafe);
     }
 
+    /**
+     * A generic function that takes a `ConfigSafe` struct for post-initialisation configuration of a safe.
+     * This uses a multisend function to:
+     * 1. Set the domainVerifier for `GPv2Settlement`
+     * 2. Set an allowance for `GPv2VaultRelayer` to use the sellToken
+     * 3. Do `transferFrom` of the sellToken to the `Safe` contract
+     * 4. Create the conditional order on `ComposableCoW` via the `Safe` contract
+     * @param config `ConfigSafe` struct containing the post-initialisation configuration for the safe
+     * @return to address of the target
+     * @return value any value to send
+     * @return signature of the call made to the target
+     * @return cd calldata to send, with the selector trimmed
+     */
+    function configSafe(ConfigSafe memory config)
+        internal
+        view
+        returns (address, uint256, string memory, bytes memory)
+    {
+        bytes memory multisendPayload = abi.encodePacked(
+            // 1. Set the domainVerifier for `GPv2Settlement` (if not already set)
+            multisendHelper(
+                Enum.Operation.Call,
+                config.safe,
+                0,
+                abi.encodeWithSelector(efh.setDomainVerifier.selector, settlement.domainSeparator(), address(ccow))
+            ),
+            // 2. Set the allowance on wstETH for `GPv2VaultRelayer`
+            multisendHelper(
+                Enum.Operation.Call,
+                address(config.sellToken),
+                0,
+                abi.encodeWithSelector(IERC20.approve.selector, relayer, config.sellAmount)
+            ),
+            // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
+            multisendHelper(
+                Enum.Operation.Call,
+                address(config.sellToken),
+                0,
+                abi.encodeWithSelector(IERC20.transferFrom.selector, config.source, config.safe, config.sellAmount)
+            ),
+            // 4. Create the order
+            multisendHelper(
+                Enum.Operation.Call,
+                address(ccow),
+                0,
+                abi.encodeWithSelector(
+                    ComposableCoW.createWithContext.selector,
+                    config.params,
+                    IValueFactory(config.contextFactory),
+                    config.contextFactoryPayload,
+                    true
+                )
+            )
+        );
+
+        return interactionHelper(
+            config.safe,
+            0,
+            "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+            abi.encodeWithSelector(
+                Safe.execTransaction.selector,
+                address(multisend),
+                0,
+                abi.encodeWithSelector(MultiSend.multiSend.selector, multisendPayload),
+                Enum.Operation.DelegateCall,
+                0,
+                0,
+                0,
+                address(0),
+                payable(0),
+                abi.encodePacked(bytes32(uint256(uint160(address(timelock)))), bytes32(0), bytes1(uint8(1)))
+            )
+        );
+    }
+
+    function tradeSize() internal view returns (uint256) {
+        return TOTAL_SELL * (10 ** (IERC20Metadata(wstETH).decimals()));
+    }
+
+    function minBuyLimit() internal view returns (uint256) {
+        return tradeSize() * TOTAL_BUY_FACTOR / MAX_BPS;
+    }
+
+    /**
+     * A helper function that takes the target, value, signature and calldata and returns them.
+     * As the execution of the call makes use of `abi.encodeWithSignature`, the specified signature
+     * is used, and therefore the `calldata` that is passed in as the `cd` parameter to this function
+     * needs to have the selector trimmed.
+     * @param target of the governor interaction
+     * @param value any value to send
+     * @param signature of the call made to the target
+     * @param cd calldata to send
+     * @return to address of the target
+     * @return value any value to send
+     * @return signature of the call made to the target
+     * @return calldata to send, with the selector trimmed
+     */
     function interactionHelper(address target, uint256 value, string memory signature, bytes memory cd)
         internal
         pure
@@ -346,53 +437,26 @@ contract ProposalTest is Test {
         );
     }
 
-    function configureSafe(address safe) internal view returns (bytes[] memory config) {
-        config = new bytes[](4);
-
-        // 1. Set the domain verifier
-        config[0] = abi.encodeWithSelector(efh.setDomainVerifier.selector, settlement.domainSeparator(), address(ccow));
-
-        // 2. Set the allowance on the pending safe for `GPv2VaultRelayer` to spend `wstETH`
-        config[1] = abi.encodeWithSelector(IERC20.approve.selector, relayer, tradeSize());
-
-        // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
-        config[2] = abi.encodeWithSelector(IERC20.transferFrom.selector, address(timelock), address(safe), tradeSize());
-
-        // 4. Create the TWAP order on `ComposableCoW` via the `Safe` contract
-        config[3] = abi.encodeWithSelector(
-            ComposableCoW.createWithContext.selector,
-            IConditionalOrder.ConditionalOrderParams({
-                handler: IConditionalOrder(address(twap)),
-                salt: keccak256("cows love nouns"),
-                staticInput: abi.encode(
-                    TWAPOrder.Data({
-                        sellToken: IERC20(address(wstETH)),
-                        buyToken: IERC20(address(rETH)),
-                        receiver: address(timelock), // all funds go back to the timelock
-                        partSellAmount: tradeSize() / NUM_PARTS,
-                        minPartLimit: minBuyPartLimit(), // max price to pay for a unit of buyToken denominated in sellToken
-                        t0: uint256(0), // setting this to zero commands block time at mining of proposal execution
-                        n: NUM_PARTS,
-                        t: PART_DURATION,
-                        span: 0,
-                        appData: keccak256("need some cool appdata") // TODO: verify the appdata that we need here
-                    })
-                    )
-            }),
-            IValueFactory(address(contextFactory)),
-            bytes(""),
-            true
-        );
+    /**
+     * A multisend helper to encode the payload for a multisend.
+     * @param op Multisend operation, ie. Call, DelegateCall
+     * @param to where to call / delegatecall
+     * @param value any value to send
+     * @param cd calldata to send
+     */
+    function multisendHelper(Enum.Operation op, address to, uint256 value, bytes memory cd)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodePacked(uint8(op), to, value, cd.length, cd);
     }
 
-    function tradeSize() internal view returns (uint256) {
-        return TOTAL_SELL * (10 ** (IERC20Metadata(wstETH).decimals()));
-    }
-
-    function minBuyPartLimit() internal view returns (uint256) {
-        return tradeSize() * TOTAL_BUY_FACTOR / MAX_BPS;
-    }
-
+    /**
+     * Compute the deterministic deployment address of a `Safe` when using `SafeProxyFactory.createProxyWithNonce`.
+     * @param initializer for safe that is a component for determining the salt
+     * @param saltNonce an additional component for determining the salt
+     */
     function computeSafeAddress(bytes memory initializer, bytes32 saltNonce) internal pure returns (address) {
         address from = address(safeFactory);
         bytes32 salt = keccak256(abi.encodePacked(keccak256(initializer), uint256(saltNonce)));
