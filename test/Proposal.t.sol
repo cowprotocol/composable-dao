@@ -46,7 +46,8 @@ GPv2Settlement constant settlement = GPv2Settlement(payable(0x9008D19f58AAbD9eD0
 address constant relayer = 0xC92E8bdf79f0507f65a392b0ab4667716BFE0110;
 ComposableCoW constant ccow = ComposableCoW(0xfdaFc9d1902f4e0b84f65F49f244b32b31013b74);
 TWAP constant twap = TWAP(0x6cF1e9cA41f7611dEf408122793c358a3d11E5a5);
-CurrentBlockTimestampFactory constant contextFactory = CurrentBlockTimestampFactory(0x52eD56Da04309Aca4c3FECC595298d80C2f16BAc);
+CurrentBlockTimestampFactory constant contextFactory =
+    CurrentBlockTimestampFactory(0x52eD56Da04309Aca4c3FECC595298d80C2f16BAc);
 
 // DAO + DAO Token
 NounsDAOLogicV2 constant dao = NounsDAOLogicV2(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
@@ -60,7 +61,6 @@ IERC20Metadata constant stETH = IERC20Metadata(0xae7ab96520DE3A18E5e111B5EaAb095
 IERC20Metadata constant rETH = IERC20Metadata(0xae78736Cd615f374D3085123A210448E74Fc6393);
 
 contract ProposalTest is Test {
-
     // Want to demonstrate setting up a vote and executing a swap of 500 wstETH to rETH
     // 1. Approve the required amount of stETH required to wrap into wstETH
     // 2. Wrap stETH into wstETH
@@ -75,12 +75,12 @@ contract ProposalTest is Test {
     //   - `sellAmount` set to 500
     //   - `buyAmount` TBD
     //   - `receiver` set to the `NounsDAOExecutor` address (all funds on swap move to the timelock)
-    // 
+    //
     // Risks: If a discrete order fails, that part of the swap will be left in the `Safe` contract.
     //        Funds are still retrievable, however as the `Safe` contract is owned by the `NounsDAOExecutor`
     //        the funds will be locked for the duration of the timelock.
     //
-    // Process: 
+    // Process:
     // 1. Prove that the process can be undertaken from the context of the `NounsDAOExecutor` (ie. the timelock).
     //    This means we use `vm.prank` to impersonate the `NounsDAOExecutor` and execute the swap.
     // 2. Create the proposal calldata.
@@ -107,22 +107,12 @@ contract ProposalTest is Test {
             address(stETH),
             0,
             "approve(address,uint256)",
-            abi.encodeWithSelector(
-                IERC20.approve.selector,
-                wstETH,
-                stETHAmount
-            )
+            abi.encodeWithSelector(IERC20.approve.selector, wstETH, stETHAmount)
         );
 
         // 2. Wrap stETH into wstETH
         (targets[1], values[1], signatures[1], calldatas[1]) = interactionHelper(
-            address(wstETH),
-            0,
-            "wrap(uint256)",
-            abi.encodeWithSelector(
-                IWstETH.wrap.selector,
-                stETHAmount
-            )
+            address(wstETH), 0, "wrap(uint256)", abi.encodeWithSelector(IWstETH.wrap.selector, stETHAmount)
         );
 
         // 3. Approve the to-be-created `Safe` contract to use the wstETH
@@ -130,11 +120,7 @@ contract ProposalTest is Test {
             address(wstETH),
             0,
             "approve(address,uint256)",
-            abi.encodeWithSelector(
-                IERC20.approve.selector,
-                pendingSafe,
-                tradeSize()
-            )
+            abi.encodeWithSelector(IERC20.approve.selector, pendingSafe, tradeSize())
         );
 
         // 4. Create the safe
@@ -143,10 +129,7 @@ contract ProposalTest is Test {
             0,
             "createProxyWithNonce(address,bytes,uint256)",
             abi.encodeWithSelector(
-                SafeProxyFactory.createProxyWithNonce.selector,
-                address(safeSingleton),
-                initializer,
-                uint256(SALT_NONCE)
+                SafeProxyFactory.createProxyWithNonce.selector, address(safeSingleton), initializer, uint256(SALT_NONCE)
             )
         );
 
@@ -173,27 +156,15 @@ contract ProposalTest is Test {
                         ),
                         // 2. Set the allowance on wstETH for `GPv2VaultRelayer`
                         abi.encodePacked(
-                            uint8(Enum.Operation.Call),
-                            address(wstETH),
-                            uint256(0),
-                            safeConfig[1].length,
-                            safeConfig[1]
+                            uint8(Enum.Operation.Call), address(wstETH), uint256(0), safeConfig[1].length, safeConfig[1]
                         ),
                         // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
                         abi.encodePacked(
-                            uint8(Enum.Operation.Call),
-                            address(wstETH),
-                            uint256(0),
-                            safeConfig[2].length,
-                            safeConfig[2]
+                            uint8(Enum.Operation.Call), address(wstETH), uint256(0), safeConfig[2].length, safeConfig[2]
                         ),
                         // 4. Create the order
                         abi.encodePacked(
-                            uint8(Enum.Operation.Call),
-                            address(ccow),
-                            uint256(0),
-                            safeConfig[3].length,
-                            safeConfig[3]
+                            uint8(Enum.Operation.Call), address(ccow), uint256(0), safeConfig[3].length, safeConfig[3]
                         )
                     )
                 ),
@@ -212,11 +183,7 @@ contract ProposalTest is Test {
             address(wstETH),
             0,
             "approve(address,uint256)",
-            abi.encodeWithSelector(
-                IERC20.approve.selector,
-                pendingSafe,
-                0
-            )
+            abi.encodeWithSelector(IERC20.approve.selector, pendingSafe, 0)
         );
 
         // Before we propose, set a fake low proposal threshold
@@ -227,7 +194,7 @@ contract ProposalTest is Test {
 
         address voter = address(this);
 
-        // Let's fake being the NounsAuctionHoues and mint ourselves 60% of the nouns
+        // Let's fake being the NounsAuctionHouse and mint ourselves 60% of the nouns
         vm.startPrank(auctionHouse);
         for (uint256 i = 0; i < 400; i++) {
             uint256 id = nouns.mint();
@@ -238,13 +205,7 @@ contract ProposalTest is Test {
         vm.roll(block.number + 1);
 
         // Can use our own account and ram it through now!
-        uint256 proposalId = dao.propose(
-            targets,
-            values,
-            signatures,
-            calldatas,
-            description
-        );
+        uint256 proposalId = dao.propose(targets, values, signatures, calldatas, description);
 
         // Let's accelerate things for testing...
         // Roll forward by the voting delay
@@ -287,11 +248,7 @@ contract ProposalTest is Test {
         IERC20(wstETH).approve(pendingSafe, tradeSize());
 
         // 4. Create the Safe.
-        SafeProxy safe = safeFactory.createProxyWithNonce(
-            address(safeSingleton),
-            initializer,
-            uint256(SALT_NONCE)
-        );
+        SafeProxy safe = safeFactory.createProxyWithNonce(address(safeSingleton), initializer, uint256(SALT_NONCE));
 
         assertEq(address(safe), pendingSafe);
 
@@ -311,35 +268,19 @@ contract ProposalTest is Test {
                 abi.encodePacked(
                     // 1. Set the domainVerifier
                     abi.encodePacked(
-                        uint8(Enum.Operation.Call),
-                        address(safe),
-                        uint256(0),
-                        safeConfig[0].length,
-                        safeConfig[0]
+                        uint8(Enum.Operation.Call), address(safe), uint256(0), safeConfig[0].length, safeConfig[0]
                     ),
                     // 2. Set the allowance on wstETH for `GPv2VaultRelayer`
                     abi.encodePacked(
-                        uint8(Enum.Operation.Call),
-                        address(wstETH),
-                        uint256(0),
-                        safeConfig[1].length,
-                        safeConfig[1]
+                        uint8(Enum.Operation.Call), address(wstETH), uint256(0), safeConfig[1].length, safeConfig[1]
                     ),
                     // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
                     abi.encodePacked(
-                        uint8(Enum.Operation.Call),
-                        address(wstETH),
-                        uint256(0),
-                        safeConfig[2].length,
-                        safeConfig[2]
+                        uint8(Enum.Operation.Call), address(wstETH), uint256(0), safeConfig[2].length, safeConfig[2]
                     ),
                     // 4. Create the order
                     abi.encodePacked(
-                        uint8(Enum.Operation.Call),
-                        address(ccow),
-                        uint256(0),
-                        safeConfig[3].length,
-                        safeConfig[3]
+                        uint8(Enum.Operation.Call), address(ccow), uint256(0), safeConfig[3].length, safeConfig[3]
                     )
                 )
             ),
@@ -392,7 +333,11 @@ contract ProposalTest is Test {
         return (initializer, pendingSafe);
     }
 
-    function interactionHelper(address target, uint256 value, string memory signature, bytes memory cd) internal pure returns(address, uint256, string memory, bytes memory) {
+    function interactionHelper(address target, uint256 value, string memory signature, bytes memory cd)
+        internal
+        pure
+        returns (address, uint256, string memory, bytes memory)
+    {
         return (
             target,
             value,
@@ -405,26 +350,13 @@ contract ProposalTest is Test {
         config = new bytes[](4);
 
         // 1. Set the domain verifier
-        config[0] = abi.encodeWithSelector(
-            efh.setDomainVerifier.selector,
-            settlement.domainSeparator(),
-            address(ccow)
-        );
+        config[0] = abi.encodeWithSelector(efh.setDomainVerifier.selector, settlement.domainSeparator(), address(ccow));
 
         // 2. Set the allowance on the pending safe for `GPv2VaultRelayer` to spend `wstETH`
-        config[1] = abi.encodeWithSelector(
-            IERC20.approve.selector,
-            relayer,
-            tradeSize()
-        );
+        config[1] = abi.encodeWithSelector(IERC20.approve.selector, relayer, tradeSize());
 
         // 3. Use `transferFrom` to pull funds from the timelock which has already approved the safe
-        config[2] = abi.encodeWithSelector(
-            IERC20.transferFrom.selector,
-            address(timelock),
-            address(safe),
-            tradeSize()
-        );
+        config[2] = abi.encodeWithSelector(IERC20.transferFrom.selector, address(timelock), address(safe), tradeSize());
 
         // 4. Create the TWAP order on `ComposableCoW` via the `Safe` contract
         config[3] = abi.encodeWithSelector(
@@ -432,18 +364,20 @@ contract ProposalTest is Test {
             IConditionalOrder.ConditionalOrderParams({
                 handler: IConditionalOrder(address(twap)),
                 salt: keccak256("cows love nouns"),
-                staticInput: abi.encode(TWAPOrder.Data({
-                    sellToken: IERC20(address(wstETH)),
-                    buyToken: IERC20(address(rETH)),
-                    receiver: address(timelock), // all funds go back to the timelock
-                    partSellAmount: tradeSize() / NUM_PARTS,
-                    minPartLimit: minBuyPartLimit(), // max price to pay for a unit of buyToken denominated in sellToken
-                    t0: uint256(0), // setting this to zero commands block time at mining of proposal execution
-                    n: NUM_PARTS,
-                    t: PART_DURATION,
-                    span: 0,
-                    appData: keccak256("need some cool appdata") // TODO: verify the appdata that we need here
-                }))
+                staticInput: abi.encode(
+                    TWAPOrder.Data({
+                        sellToken: IERC20(address(wstETH)),
+                        buyToken: IERC20(address(rETH)),
+                        receiver: address(timelock), // all funds go back to the timelock
+                        partSellAmount: tradeSize() / NUM_PARTS,
+                        minPartLimit: minBuyPartLimit(), // max price to pay for a unit of buyToken denominated in sellToken
+                        t0: uint256(0), // setting this to zero commands block time at mining of proposal execution
+                        n: NUM_PARTS,
+                        t: PART_DURATION,
+                        span: 0,
+                        appData: keccak256("need some cool appdata") // TODO: verify the appdata that we need here
+                    })
+                    )
             }),
             IValueFactory(address(contextFactory)),
             bytes(""),
@@ -462,9 +396,9 @@ contract ProposalTest is Test {
     function computeSafeAddress(bytes memory initializer, bytes32 saltNonce) internal pure returns (address) {
         address from = address(safeFactory);
         bytes32 salt = keccak256(abi.encodePacked(keccak256(initializer), uint256(saltNonce)));
-        bytes32 initCodeHash = keccak256(abi.encodePacked(safeFactory.proxyCreationCode(), uint256(uint160(address(safeSingleton)))));
+        bytes32 initCodeHash =
+            keccak256(abi.encodePacked(safeFactory.proxyCreationCode(), uint256(uint160(address(safeSingleton)))));
 
         return Create2.computeAddress(salt, initCodeHash, from);
     }
-
 }

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 interface IWstETH {
-
     /**
      * @notice Exchanges stETH to wstETH
      * @param _stETHAmount amount of stETH to wrap in exchange for wstETH
