@@ -74,34 +74,6 @@ contract ProposalTest is Test {
         bool postInit;
     }
 
-    // Want to demonstrate setting up a vote and executing a swap of 500 wstETH to rETH
-    // 1. Approve the required amount of stETH to wrap into wstETH
-    // 2. Wrap stETH into wstETH
-    // 3. Approve the to-be-created `Safe` (in pt. 4) to use the DAO's wstETH
-    // 4. Create the `ComposableCoW` compatible `Safe` contract with:
-    //   - `threshold` of 1
-    //   - `owner` set to the `NounsDAOExecutor` address (ie. all executions on the `Safe` are bound by timelock)
-    // 5. Execute post-Safe creation configuration and create conditional order:
-    //    a. Set `ComposableCoW` as the domain verifier for `GPv2Settlement`
-    //    b. Set an allowance for `GPv2VaultRelayer` to use the wstETH from the `Safe` contract
-    //    c. Do `transferFrom` of the wstETH to the `Safe` contract
-    //    d. Create the TWAP order on `ComposableCoW` via the `Safe` contract
-    //       - `sellToken` set to the wstETH address
-    //       - `buyToken` set to the rETH address
-    //       - `sellAmount` set to 500 wstETH
-    //       - `buyAmount` TBD
-    //       - `receiver` set to the `NounsDAOExecutor` address (all funds on swap move to the timelock)
-    // 6. Enforce that the allowance for `wstETH` to be spent from the timelock controller is set back to zero
-    //
-    // Risks: If a discrete order fails, that part of the swap will be left in the `Safe` contract.
-    //        Funds are still retrievable, however as the `Safe` contract is owned by the `NounsDAOExecutor`
-    //        the funds will be locked for the duration of the timelock.
-    //
-    // Process:
-    // 1. Prove that the process can be undertaken from the context of the `NounsDAOExecutor` (ie. the timelock).
-    //    This means we use `vm.prank` to impersonate the `NounsDAOExecutor` and execute the swap.
-    // 2. Create the proposal calldata.
-
     // --- constants
 
     uint256 constant TOTAL_SELL = 500;
