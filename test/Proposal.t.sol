@@ -257,41 +257,30 @@ contract ProposalTest is Test {
         // calculate the ending time
         uint256 endTime = t0 + (NUM_PARTS * PART_DURATION);
 
-        while (true) {
+        // the case for progressing beyond the end of the TWAP order (endTime) and checking for
+        // reversion isn't handled here as it's handled within the `ComposableCoW` TWAP order
+        // test suite.
+        while (block.timestamp < endTime) {
             // Simulate being called by the watch tower
+            (GPv2Order.Data memory order, bytes memory signature) =
+                ccow.getTradeableOrderWithSignature(STAGING_SAFE, getOrder(), bytes(""), new bytes32[](0));
+            bytes32 orderDigest = GPv2Order.hash(order, settlement.domainSeparator());
+            if (
+                orderFills[orderDigest] == 0
+                    && ExtensibleFallbackHandler(STAGING_SAFE).isValidSignature(orderDigest, signature)
+                        == ERC1271.isValidSignature.selector
+            ) {
+                // Have a new order, so let's settle it
+                settle(STAGING_SAFE, bob, order, signature, bytes4(0));
 
-            try ccow.getTradeableOrderWithSignature(STAGING_SAFE, getOrder(), bytes(""), new bytes32[](0))
-            returns (GPv2Order.Data memory order, bytes memory signature) {
-                bytes32 orderDigest = GPv2Order.hash(order, settlement.domainSeparator());
-                if (
-                    orderFills[orderDigest] == 0
-                        && ExtensibleFallbackHandler(STAGING_SAFE).isValidSignature(orderDigest, signature)
-                            == ERC1271.isValidSignature.selector
-                ) {
-                    // Have a new order, so let's settle it
-                    settle(STAGING_SAFE, bob, order, signature, bytes4(0));
-
-                    orderFills[orderDigest] = 1;
-                    totalFills++;
-                }
-
-                // only count this second if we didn't revert
-                numSecsProcessed += 12 seconds;
-            } catch (bytes memory lowLevelData) {
-                bytes4 receivedSelector = bytes4(lowLevelData);
-
-                // Should have reverted if the `numSecsProcessed` > `frequency * numParts`
-                if (block.timestamp == endTime && receivedSelector == IConditionalOrder.OrderNotValid.selector) {
-                    break;
-                } else if (block.timestamp > endTime) {
-                    revert("OrderNotValid() should have been thrown");
-                }
-
-                // The order should always be valid because there is no span
-                if (receivedSelector == IConditionalOrder.OrderNotValid.selector) {
-                    revert("OrderNotValid() should not be thrown");
-                }
+                orderFills[orderDigest] = 1;
+                totalFills++;
             }
+
+            // only count this second if we didn't revert
+            numSecsProcessed += 12 seconds;
+
+            // warp in preparation for the next block
             vm.warp(block.timestamp + 12 seconds);
         }
 
@@ -299,17 +288,13 @@ contract ProposalTest is Test {
         assertTrue(block.timestamp == t0 + NUM_PARTS * PART_DURATION, "TWAP order should be expired");
         // the number of seconds processed should be equal to the number of
         // parts times span (if span is not 0)
-        assertTrue(
-            numSecsProcessed == NUM_PARTS * PART_DURATION,
-            "Number of seconds processed is incorrect"
-        );
+        assertTrue(numSecsProcessed == NUM_PARTS * PART_DURATION, "Number of seconds processed is incorrect");
         // the number of fills should be equal to the number of parts
         assertTrue(totalFills == NUM_PARTS, "Number of fills is incorrect");
 
         // Verify that balances are as expected after the simulation
         assertTrue(
-            SELL_TOKEN.balanceOf(address(STAGING_SAFE))
-                == safeWstEthBalanceBefore - tradeSize(),
+            SELL_TOKEN.balanceOf(address(STAGING_SAFE)) == safeWstEthBalanceBefore - tradeSize(),
             "TWAP safe sell token balance is incorrect"
         );
         assertTrue(
@@ -560,14 +545,15 @@ contract ProposalTest is Test {
      * @param counterParty the account that is on the other side of the trade
      * @param order the order to settle
      * @param bundleBytes the ERC-1271 bundle for the order
-     * @param _revertSelector the selector to revert with if the order is invalid
+     * @param expectedRevertSelector the selector `settle` is expected to revert
+     *        with, or `bytes4(0)` if no revert is expected
      */
     function settle(
         address who,
         TestAccount memory counterParty,
         GPv2Order.Data memory order,
         bytes memory bundleBytes,
-        bytes4 _revertSelector
+        bytes4 expectedRevertSelector
     ) internal {
         // Generate counter party's order
         GPv2Order.Data memory counterOrder = GPv2Order.Data({
@@ -641,10 +627,10 @@ contract ProposalTest is Test {
 
         // finally we can execute the settlement
         vm.prank(solver.addr);
-        if (_revertSelector == bytes4(0)) {
+        if (expectedRevertSelector == bytes4(0)) {
             settlement.settle(tokens, clearingPrices, trades, interactions);
         } else {
-            vm.expectRevert(_revertSelector);
+            vm.expectRevert(expectedRevertSelector);
             settlement.settle(tokens, clearingPrices, trades, interactions);
         }
     }
