@@ -86,7 +86,10 @@ contract ProposalTest is Test {
     }
 
     // --- constants
-
+    IERC20 constant SELL_TOKEN = IERC20(address(wstETH));
+    IERC20 constant BUY_TOKEN = IERC20(address(rETH));
+    address constant SOURCE = address(timelock);
+    address constant RECEIVER = address(timelock);
     uint256 constant TOTAL_SELL = 500;
     uint256 constant TOTAL_BUY_FACTOR = 10380; // TODO: in BPS, 1wstETH = 1.038 rETH
     uint256 constant NUM_PARTS = 5;
@@ -111,9 +114,9 @@ contract ProposalTest is Test {
             salt: CONDITIONAL_ORDER_SALT,
             staticInput: abi.encode(
                 TWAPOrder.Data({
-                    sellToken: IERC20(address(wstETH)),
-                    buyToken: IERC20(address(rETH)),
-                    receiver: address(timelock), // all funds go back to the timelock
+                    sellToken: SELL_TOKEN,
+                    buyToken: BUY_TOKEN,
+                    receiver: RECEIVER, // all funds go back to the timelock
                     partSellAmount: tradeSize() / NUM_PARTS,
                     minPartLimit: minBuyLimit() / NUM_PARTS, // minimum amount of rETH we want to get back per part
                     t0: uint256(0), // setting this to zero commands block time at mining of proposal execution
@@ -126,14 +129,14 @@ contract ProposalTest is Test {
         });
     }
 
-    function testSwap_FromProposal() public {
+    function testTWAP_SimulateFromProposal() public {
         address[] memory targets = new address[](6);
         uint256[] memory values = new uint256[](6);
         string[] memory signatures = new string[](6);
         bytes[] memory calldatas = new bytes[](6);
         string memory description = "Swap 500 wstETH for rETH";
 
-        (bytes memory initializer, address pendingSafe) = getSafe(address(timelock), SALT_NONCE);
+        (bytes memory initializer, address STAGING_SAFE) = getSafe(RECEIVER, SALT_NONCE);
         uint256 stETHAmount = IWstETH(wstETH).getStETHByWstETH(tradeSize());
 
         // 1. Approve the required amount of stETH required to wrap into wstETH
@@ -151,13 +154,13 @@ contract ProposalTest is Test {
 
         // 3. Approve the to-be-created `Safe` contract to use the wstETH
         (targets[2], values[2], signatures[2], calldatas[2]) = interactionHelper(
-            address(wstETH),
+            address(SELL_TOKEN),
             0,
             "approve(address,uint256)",
-            abi.encodeWithSelector(IERC20.approve.selector, pendingSafe, tradeSize())
+            abi.encodeWithSelector(IERC20.approve.selector, STAGING_SAFE, tradeSize())
         );
 
-        // 4. Create the safe
+        // 4. Create the safe (STAGING_SAFE)
         (targets[3], values[3], signatures[3], calldatas[3]) = interactionHelper(
             address(safeFactory),
             0,
@@ -170,10 +173,10 @@ contract ProposalTest is Test {
         // 5. Configure the safe and create the TWAP
         (targets[4], values[4], signatures[4], calldatas[4]) = configSafe(
             ConfigSafe({
-                safe: pendingSafe,
-                sellToken: wstETH,
+                safe: STAGING_SAFE,
+                sellToken: address(SELL_TOKEN),
                 sellAmount: tradeSize(),
-                source: address(timelock),
+                source: SOURCE,
                 params: getOrder(),
                 contextFactory: address(contextFactory),
                 contextFactoryPayload: bytes(""),
@@ -183,10 +186,10 @@ contract ProposalTest is Test {
 
         // 6. Enforce that the allowance for `wstETH` that can be spent from the timelock controller is set back to zero
         (targets[5], values[5], signatures[5], calldatas[5]) = interactionHelper(
-            address(wstETH),
+            address(SELL_TOKEN),
             0,
             "approve(address,uint256)",
-            abi.encodeWithSelector(IERC20.approve.selector, pendingSafe, 0)
+            abi.encodeWithSelector(IERC20.approve.selector, STAGING_SAFE, 0)
         );
 
         // Before we propose, set a fake low proposal threshold
@@ -323,10 +326,10 @@ contract ProposalTest is Test {
         );
     }
 
-    function testSwap_FromTimelockPerspective() public {
+    function testTWAP_FromTimelockPerspective() public {
         require(NUM_PARTS < tradeSize());
 
-        (bytes memory initializer, address pendingSafe) = getSafe(address(timelock), SALT_NONCE);
+        (bytes memory initializer, address STAGING_SAFE) = getSafe(RECEIVER, SALT_NONCE);
 
         // Do everything from the timelock
         vm.startPrank(address(timelock));
@@ -341,12 +344,12 @@ contract ProposalTest is Test {
         IWstETH(wstETH).wrap(stETHAmount);
 
         // 3. Approve the to-be-created `Safe` contract to use the wstETH
-        IERC20(wstETH).approve(pendingSafe, tradeSize());
+        SELL_TOKEN.approve(STAGING_SAFE, tradeSize());
 
         // 4. Create the Safe.
         SafeProxy safe = safeFactory.createProxyWithNonce(address(safeSingleton), initializer, uint256(SALT_NONCE));
 
-        assertEq(address(safe), pendingSafe);
+        assertEq(address(safe), STAGING_SAFE);
 
         // 5. On the safe, we need to do some configuration:
         //   a. Set `ComposableCoW` as the domain verifier for `GPv2Settlement`
@@ -356,10 +359,10 @@ contract ProposalTest is Test {
 
         (address toSafe, uint256 value, string memory signature, bytes memory cd) = configSafe(
             ConfigSafe({
-                safe: pendingSafe,
-                sellToken: wstETH,
+                safe: STAGING_SAFE,
+                sellToken: address(SELL_TOKEN),
                 sellAmount: tradeSize(),
-                source: address(timelock),
+                source: SOURCE,
                 params: getOrder(),
                 contextFactory: address(contextFactory),
                 contextFactoryPayload: bytes(""),
@@ -372,9 +375,9 @@ contract ProposalTest is Test {
         assertEq(success, true);
 
         // 6. Enforce that the allowance for `wstETH` to be spent from the timelock controller is set back to zero
-        IERC20(wstETH).approve(pendingSafe, 0);
+        SELL_TOKEN.approve(STAGING_SAFE, 0);
 
-        assertEq(IERC20(wstETH).allowance(address(timelock), address(safe)), 0);
+        assertEq(SELL_TOKEN.allowance(SOURCE, STAGING_SAFE), 0);
     }
 
     function testReadyForProd() public pure {
