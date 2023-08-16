@@ -8,6 +8,7 @@ import {IERC20Metadata} from "openzeppelin/contracts/interfaces/IERC20Metadata.s
 import {Create2} from "openzeppelin/contracts/utils/Create2.sol";
 import {BytesLib} from "byteslib/BytesLib.sol";
 import {IERC20} from "composable/lib/@openzeppelin/contracts/interfaces/IERC20.sol";
+import {TestAccount, TestAccountLib} from "composable/test/libraries/TestAccountLib.t.sol";
 
 // Safe
 import {Enum} from "safe/common/Enum.sol";
@@ -16,6 +17,7 @@ import {SafeProxy} from "safe/proxies/SafeProxy.sol";
 import {Safe} from "safe/Safe.sol";
 import {MultiSend} from "safe/libraries/MultiSend.sol";
 import {ExtensibleFallbackHandler} from "safe/handler/ExtensibleFallbackHandler.sol";
+import {ERC1271} from "safe/handler/extensible/SignatureVerifierMuxer.sol";
 
 // CoW Protocol + ComposableCoW
 import {IConditionalOrder} from "composable/src/interfaces/IConditionalOrder.sol";
@@ -24,6 +26,12 @@ import {ComposableCoW} from "composable/src/ComposableCoW.sol";
 import {TWAP, TWAPOrder} from "composable/src/types/twap/TWAP.sol";
 import {CurrentBlockTimestampFactory} from "composable/src/value_factories/CurrentBlockTimestampFactory.sol";
 import {GPv2Settlement} from "composable/lib/cowprotocol/src/contracts/GPv2Settlement.sol";
+import {GPv2TradeEncoder} from "composable/test/vendored/GPv2TradeEncoder.sol";
+import {GPv2Order} from "composable/lib/cowprotocol/src/contracts/libraries/GPv2Order.sol";
+import {GPv2Trade} from "composable/lib/cowprotocol/src/contracts/libraries/GPv2Trade.sol";
+import {GPv2Interaction} from "composable/lib/cowprotocol/src/contracts/libraries/GPv2Interaction.sol";
+import {GPv2Signing} from "composable/lib/cowprotocol/src/contracts/mixins/GPv2Signing.sol";
+import {GPv2AllowListAuthentication} from "composable/lib/cowprotocol/src/contracts/GPv2AllowListAuthentication.sol";
 
 // DAO contracts
 import {NounsDAOLogicV2} from "nounsdao/governance/NounsDAOLogicV2.sol";
@@ -48,6 +56,7 @@ ComposableCoW constant ccow = ComposableCoW(0xfdaFc9d1902f4e0b84f65F49f244b32b31
 TWAP constant twap = TWAP(0x6cF1e9cA41f7611dEf408122793c358a3d11E5a5);
 CurrentBlockTimestampFactory constant contextFactory =
     CurrentBlockTimestampFactory(0x52eD56Da04309Aca4c3FECC595298d80C2f16BAc);
+GPv2AllowListAuthentication constant allowList = GPv2AllowListAuthentication(0x2c4c28DDBdAc9C5E7055b4C863b72eA0149D8aFE);
 
 // DAO + DAO Token
 NounsDAOLogicV2 constant dao = NounsDAOLogicV2(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
@@ -61,6 +70,8 @@ IERC20Metadata constant stETH = IERC20Metadata(0xae7ab96520DE3A18E5e111B5EaAb095
 IERC20Metadata constant rETH = IERC20Metadata(0xae78736Cd615f374D3085123A210448E74Fc6393);
 
 contract ProposalTest is Test {
+    using TestAccountLib for TestAccount[];
+    using TestAccountLib for TestAccount;
     // --- types
 
     struct ConfigSafe {
@@ -85,6 +96,11 @@ contract ProposalTest is Test {
 
     bytes32 constant CONDITIONAL_ORDER_SALT = keccak256("cows love nouns");
     bytes32 constant TWAP_APPDATA = keccak256("need some cool appdata");
+
+    TestAccount solver = TestAccountLib.createTestAccount("solver");
+    TestAccount bob = TestAccountLib.createTestAccount("counterParty");
+
+    mapping(bytes32 => uint256) public orderFills;
 
     /**
      * Customise this function for the order you want to create for the proposal.
@@ -217,6 +233,94 @@ contract ProposalTest is Test {
 
         // Attempt to execute the proposal
         dao.execute(proposalId);
+        uint256 t0 = block.timestamp;
+
+        // --- simulation of the settlement
+        vm.prank(allowList.manager());
+        allowList.addSolver(solver.addr);
+
+        // fund the counter-party with the rETH to swap for wstETH
+        deal(address(BUY_TOKEN), bob.addr, tradeSize() * TOTAL_BUY_FACTOR / MAX_BPS);
+
+        // Store balances before we simulate the settlements
+        uint256 safeWstEthBalanceBefore = SELL_TOKEN.balanceOf(address(STAGING_SAFE));
+        uint256 timelockRethBalanceBefore = BUY_TOKEN.balanceOf(RECEIVER);
+        uint256 counterPartyWstEthBalanceBefore = SELL_TOKEN.balanceOf(bob.addr);
+        uint256 counterPartyRethBalanceBefore = BUY_TOKEN.balanceOf(bob.addr);
+
+        uint256 totalFills;
+        uint256 numSecsProcessed;
+
+        // calculate the ending time
+        uint256 endTime = t0 + (NUM_PARTS * PART_DURATION);
+
+        while (true) {
+            // Simulate being called by the watch tower
+
+            try ccow.getTradeableOrderWithSignature(STAGING_SAFE, getOrder(), bytes(""), new bytes32[](0))
+            returns (GPv2Order.Data memory order, bytes memory signature) {
+                bytes32 orderDigest = GPv2Order.hash(order, settlement.domainSeparator());
+                if (
+                    orderFills[orderDigest] == 0
+                        && ExtensibleFallbackHandler(STAGING_SAFE).isValidSignature(orderDigest, signature)
+                            == ERC1271.isValidSignature.selector
+                ) {
+                    // Have a new order, so let's settle it
+                    settle(STAGING_SAFE, bob, order, signature, bytes4(0));
+
+                    orderFills[orderDigest] = 1;
+                    totalFills++;
+                }
+
+                // only count this second if we didn't revert
+                numSecsProcessed += 12 seconds;
+            } catch (bytes memory lowLevelData) {
+                bytes4 receivedSelector = bytes4(lowLevelData);
+
+                // Should have reverted if the `numSecsProcessed` > `frequency * numParts`
+                if (block.timestamp == endTime && receivedSelector == IConditionalOrder.OrderNotValid.selector) {
+                    break;
+                } else if (block.timestamp > endTime) {
+                    revert("OrderNotValid() should have been thrown");
+                }
+
+                // The order should always be valid because there is no span
+                if (receivedSelector == IConditionalOrder.OrderNotValid.selector) {
+                    revert("OrderNotValid() should not be thrown");
+                }
+            }
+            vm.warp(block.timestamp + 12 seconds);
+        }
+
+        // the timestamp should be equal to the end time of the TWAP order
+        assertTrue(block.timestamp == t0 + NUM_PARTS * PART_DURATION, "TWAP order should be expired");
+        // the number of seconds processed should be equal to the number of
+        // parts times span (if span is not 0)
+        assertTrue(
+            numSecsProcessed == NUM_PARTS * PART_DURATION,
+            "Number of seconds processed is incorrect"
+        );
+        // the number of fills should be equal to the number of parts
+        assertTrue(totalFills == NUM_PARTS, "Number of fills is incorrect");
+
+        // Verify that balances are as expected after the simulation
+        assertTrue(
+            SELL_TOKEN.balanceOf(address(STAGING_SAFE))
+                == safeWstEthBalanceBefore - tradeSize(),
+            "TWAP safe sell token balance is incorrect"
+        );
+        assertTrue(
+            BUY_TOKEN.balanceOf(RECEIVER) >= timelockRethBalanceBefore + minBuyLimit(),
+            "TWAP dao buy token balance is incorrect"
+        );
+        assertTrue(
+            SELL_TOKEN.balanceOf(bob.addr) == counterPartyWstEthBalanceBefore + tradeSize(),
+            "Counter Party buy token balance is incorrect"
+        );
+        assertTrue(
+            BUY_TOKEN.balanceOf(bob.addr) >= counterPartyRethBalanceBefore - minBuyLimit(),
+            "Counter Party sell token balance is incorrect"
+        );
     }
 
     function testSwap_FromTimelockPerspective() public {
@@ -444,5 +548,101 @@ contract ProposalTest is Test {
             keccak256(abi.encodePacked(safeFactory.proxyCreationCode(), uint256(uint160(address(safeSingleton)))));
 
         return Create2.computeAddress(salt, initCodeHash, from);
+    }
+
+    /**
+     * Settle a CoW Protocol Order
+     * @dev This generates a counter order and signs it.
+     * @param who this order belongs to
+     * @param counterParty the account that is on the other side of the trade
+     * @param order the order to settle
+     * @param bundleBytes the ERC-1271 bundle for the order
+     * @param _revertSelector the selector to revert with if the order is invalid
+     */
+    function settle(
+        address who,
+        TestAccount memory counterParty,
+        GPv2Order.Data memory order,
+        bytes memory bundleBytes,
+        bytes4 _revertSelector
+    ) internal {
+        // Generate counter party's order
+        GPv2Order.Data memory counterOrder = GPv2Order.Data({
+            sellToken: order.buyToken,
+            buyToken: order.sellToken,
+            receiver: address(0),
+            sellAmount: order.buyAmount,
+            buyAmount: order.sellAmount,
+            validTo: order.validTo,
+            appData: order.appData,
+            feeAmount: 0,
+            kind: GPv2Order.KIND_BUY,
+            partiallyFillable: false,
+            buyTokenBalance: GPv2Order.BALANCE_ERC20,
+            sellTokenBalance: GPv2Order.BALANCE_ERC20
+        });
+
+        bytes memory counterPartySig =
+            counterParty.signPacked(GPv2Order.hash(counterOrder, settlement.domainSeparator()));
+
+        // Authorize the GPv2VaultRelayer to spend bob's sell token
+        vm.prank(counterParty.addr);
+        IERC20(counterOrder.sellToken).approve(address(relayer), counterOrder.sellAmount);
+
+        // first declare the tokens we will be trading
+        IERC20[] memory tokens = new IERC20[](2);
+        tokens[0] = IERC20(order.sellToken);
+        tokens[1] = IERC20(order.buyToken);
+
+        // second declare the clearing prices
+        uint256[] memory clearingPrices = new uint256[](2);
+        clearingPrices[0] = counterOrder.sellAmount;
+        clearingPrices[1] = counterOrder.buyAmount;
+
+        // third declare the trades
+        GPv2Trade.Data[] memory trades = new GPv2Trade.Data[](2);
+
+        // The safe's order is the first trade
+        trades[0] = GPv2Trade.Data({
+            sellTokenIndex: 0,
+            buyTokenIndex: 1,
+            receiver: order.receiver,
+            sellAmount: order.sellAmount,
+            buyAmount: order.buyAmount,
+            validTo: order.validTo,
+            appData: order.appData,
+            feeAmount: order.feeAmount,
+            flags: GPv2TradeEncoder.encodeFlags(order, GPv2Signing.Scheme.Eip1271),
+            executedAmount: order.sellAmount,
+            signature: abi.encodePacked(who, bundleBytes)
+        });
+
+        // Bob's order is the second trade
+        trades[1] = GPv2Trade.Data({
+            sellTokenIndex: 1,
+            buyTokenIndex: 0,
+            receiver: address(0),
+            sellAmount: counterOrder.sellAmount,
+            buyAmount: counterOrder.buyAmount,
+            validTo: counterOrder.validTo,
+            appData: counterOrder.appData,
+            feeAmount: counterOrder.feeAmount,
+            flags: GPv2TradeEncoder.encodeFlags(counterOrder, GPv2Signing.Scheme.Eip712),
+            executedAmount: counterOrder.sellAmount,
+            signature: counterPartySig
+        });
+
+        // fourth declare the interactions
+        GPv2Interaction.Data[][3] memory interactions =
+            [new GPv2Interaction.Data[](0), new GPv2Interaction.Data[](0), new GPv2Interaction.Data[](0)];
+
+        // finally we can execute the settlement
+        vm.prank(solver.addr);
+        if (_revertSelector == bytes4(0)) {
+            settlement.settle(tokens, clearingPrices, trades, interactions);
+        } else {
+            vm.expectRevert(_revertSelector);
+            settlement.settle(tokens, clearingPrices, trades, interactions);
+        }
     }
 }
