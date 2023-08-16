@@ -40,14 +40,14 @@ d. Create the TWAP order on `ComposableCoW` via the `Safe` contract
    - Vote on the proposal (to affirm).
    - Queue the proposal (on successful vote).
    - Execute the proposal (verify transaction bundle executes correctly).
-   - **To be completed:** Verify via settlement that the discrete orders settle correctly.
+   - Verify via settlement that the discrete orders settle correctly.
 
 ## Usage
 
 The test suite is designed to run in a **forked** environment. Running in a self-contained environment is out of scope due to the large number of dependencies that are required. To run the test suite:
 
 ```bash
-forge test -vvv --optimize --optimizer-runs 200 --rpc-url http://erigon.dappnode:8545 --fork-block-number 17885110
+forge test -vvv --optimize --optimizer-runs 20000 --rpc-url http://erigon.dappnode:8545 --fork-block-number 17885110
 ```
 
 **NOTE**: Substitute the `RPC_URL` and the `fork-block-number` as required. Using a consistent `fork-block-number` will cache state that is pulled from the `RPC_URL`, resulting in substantially faster runtime on subsequent runs.

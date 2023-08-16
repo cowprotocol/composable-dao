@@ -91,14 +91,14 @@ contract ProposalTest is Test {
     address constant SOURCE = address(timelock);
     address constant RECEIVER = address(timelock);
     uint256 constant TOTAL_SELL = 500;
-    uint256 constant TOTAL_BUY_FACTOR = 10380; // TODO: in BPS, 1wstETH = 1.038 rETH
+    uint256 constant TOTAL_BUY_FACTOR = 10380; // todo: in BPS, 1wstETH = 1.038 rETH
     uint256 constant NUM_PARTS = 5;
     uint256 constant PART_DURATION = 2 hours;
-    bytes32 constant SALT_NONCE = keccak256("moo");
+    bytes32 constant SALT_NONCE = keccak256("moo"); // todo
     uint256 constant MAX_BPS = 10000;
 
-    bytes32 constant CONDITIONAL_ORDER_SALT = keccak256("cows love nouns");
-    bytes32 constant TWAP_APPDATA = keccak256("need some cool appdata");
+    bytes32 constant CONDITIONAL_ORDER_SALT = keccak256("cows love nouns"); // todo
+    bytes32 constant TWAP_APPDATA = keccak256("need some cool appdata"); // todo
 
     TestAccount solver = TestAccountLib.createTestAccount("solver");
     TestAccount bob = TestAccountLib.createTestAccount("counterParty");
