@@ -352,6 +352,10 @@ contract ProposalTest is Test {
 
         (bytes memory initializer, address STAGING_SAFE) = getSafe(RECEIVER, SALT_NONCE);
 
+        // Warp to time to execute proposal 356
+        vm.warp(1693054715);
+        oldDao.execute(356);
+
         // Do everything from the timelock
         vm.startPrank(address(timelock));
 
