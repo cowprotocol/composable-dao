@@ -1,9 +1,6 @@
 [submodule "lib/forge-std"]
 	path = lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
-[submodule "lib/nounsdao"]
-	path = lib/nounsdao
-	url = https://github.com/nounsDAO/nouns-monorepo
 [submodule "lib/composable"]
 	path = lib/composable
 	url = https://github.com/cowprotocol/composable-cow
@@ -16,6 +13,3 @@
 [submodule "lib/byteslib"]
 	path = lib/byteslib
 	url = https://github.com/GNSPS/solidity-bytes-utils
-[submodule "lib/openzeppelin-contracts-upgradeable"]
-	path = lib/openzeppelin-contracts-upgradeable
-	url = https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
