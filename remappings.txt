@@ -10,7 +10,6 @@ forge-std/=lib/forge-std/src/
 helpers/=lib/composable/lib/balancer/src/lib/helpers/
 math/=lib/composable/lib/balancer/src/lib/math/
 murky/=lib/composable/lib/murky/src/
-nounsdao/=lib/nounsdao/packages/nouns-contracts/contracts/
 openzeppelin-contracts/=lib/composable/lib/canonical-weth/lib/openzeppelin-contracts/
 openzeppelin/=lib/openzeppelin/
 safe/=lib/safe/contracts/

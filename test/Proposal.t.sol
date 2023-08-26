@@ -33,10 +33,39 @@ import {GPv2Interaction} from "composable/lib/cowprotocol/src/contracts/librarie
 import {GPv2Signing} from "composable/lib/cowprotocol/src/contracts/mixins/GPv2Signing.sol";
 import {GPv2AllowListAuthentication} from "composable/lib/cowprotocol/src/contracts/GPv2AllowListAuthentication.sol";
 
-// DAO contracts
-import {NounsDAOLogicV3} from "nounsdao/governance/NounsDAOLogicV3.sol";
-import {NounsDAOExecutorV2} from "nounsdao/governance/NounsDAOExecutorV2.sol";
-import {NounsToken} from "nounsdao/NounsToken.sol";
+// DAO interfaces
+interface INounsDAOLogic {
+    function execute(uint256 proposalId) external;
+    function _setProposalThresholdBPS(uint256 newProposalThresholdBPS) external;
+    function _setMinQuorumVotesBPS(uint16 newMinQuorumVotesBPS) external;
+    function propose(
+        address[] memory targets,
+        uint256[] memory values,
+        string[] memory signatures,
+        bytes[] memory calldatas,
+        string memory description
+    ) external returns (uint256);
+    function proposeOnTimelockV1(
+        address[] memory targets,
+        uint256[] memory values,
+        string[] memory signatures,
+        bytes[] memory calldatas,
+        string memory description
+    ) external returns (uint256);
+    function castVote(uint256 proposalId, uint8 support) external;
+    function queue(uint256 proposalId) external;
+    function votingDelay() external view returns (uint256);
+    function votingPeriod() external view returns (uint256);
+}
+
+interface INounsTimelock {
+    function delay() external view returns (uint256);
+}
+
+interface INounsToken {
+    function mint() external returns (uint256);
+    function transferFrom(address from, address to, uint256 tokenId) external;
+}
 
 // Misc Tokens
 import {IWstETH} from "../src/interfaces/IWstETH.sol";
@@ -60,11 +89,11 @@ GPv2AllowListAuthentication constant allowList = GPv2AllowListAuthentication(0x2
 
 // DAO + DAO Token
 // The oldDao and dao are the same address, it's just the logic contract that has been upgraded
-NounsDAOLogicV2 constant oldDao = NounsDAOLogicV2(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
-NounsDAOLogicV3 constant dao = NounsDAOLogicV3(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
+INounsDAOLogic constant oldDao = INounsDAOLogic(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
+INounsDAOLogic constant dao = INounsDAOLogic(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
 // Post proposal 356, the timelock has moved to the new executor
-NounsDAOExecutorV2 constant timelock = NounsDAOExecutorV2(payable(0xb1a32FC9F9D8b2cf86C068Cae13108809547ef71));
-NounsToken constant nouns = NounsToken(0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03);
+INounsTimelock constant timelock = INounsTimelock(payable(0xb1a32FC9F9D8b2cf86C068Cae13108809547ef71));
+INounsToken constant nouns = INounsToken(0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03);
 address constant auctionHouse = 0x830BD73E4184ceF73443C15111a1DF14e495C706;
 
 // Tokens
