@@ -34,8 +34,8 @@ import {GPv2Signing} from "composable/lib/cowprotocol/src/contracts/mixins/GPv2S
 import {GPv2AllowListAuthentication} from "composable/lib/cowprotocol/src/contracts/GPv2AllowListAuthentication.sol";
 
 // DAO contracts
-import {NounsDAOLogicV2} from "nounsdao/governance/NounsDAOLogicV2.sol";
-import {NounsDAOExecutor} from "nounsdao/governance/NounsDAOExecutor.sol";
+import {NounsDAOLogicV3} from "nounsdao/governance/NounsDAOLogicV3.sol";
+import {NounsDAOExecutorV2} from "nounsdao/governance/NounsDAOExecutorV2.sol";
 import {NounsToken} from "nounsdao/NounsToken.sol";
 
 // Misc Tokens
@@ -59,8 +59,11 @@ CurrentBlockTimestampFactory constant contextFactory =
 GPv2AllowListAuthentication constant allowList = GPv2AllowListAuthentication(0x2c4c28DDBdAc9C5E7055b4C863b72eA0149D8aFE);
 
 // DAO + DAO Token
-NounsDAOLogicV2 constant dao = NounsDAOLogicV2(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
-NounsDAOExecutor constant timelock = NounsDAOExecutor(payable(0x0BC3807Ec262cB779b38D65b38158acC3bfedE10));
+// The oldDao and dao are the same address, it's just the logic contract that has been upgraded
+NounsDAOLogicV2 constant oldDao = NounsDAOLogicV2(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
+NounsDAOLogicV3 constant dao = NounsDAOLogicV3(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
+// Post proposal 356, the timelock has moved to the new executor
+NounsDAOExecutorV2 constant timelock = NounsDAOExecutorV2(payable(0xb1a32FC9F9D8b2cf86C068Cae13108809547ef71));
 NounsToken constant nouns = NounsToken(0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03);
 address constant auctionHouse = 0x830BD73E4184ceF73443C15111a1DF14e495C706;
 
@@ -191,6 +194,10 @@ contract ProposalTest is Test {
             "approve(address,uint256)",
             abi.encodeWithSelector(IERC20.approve.selector, STAGING_SAFE, 0)
         );
+
+        // Warp to time to execute proposal 356
+        vm.warp(1693054715);
+        oldDao.execute(356);
 
         // Before we propose, set a fake low proposal threshold
         vm.startPrank(address(timelock));
