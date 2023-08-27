@@ -57,8 +57,6 @@ CurrentBlockTimestampFactory constant contextFactory =
 GPv2AllowListAuthentication constant allowList = GPv2AllowListAuthentication(0x2c4c28DDBdAc9C5E7055b4C863b72eA0149D8aFE);
 
 // DAO + DAO Token
-// The oldDao and dao are the same address, it's just the logic contract that has been upgraded
-// INounsDAOLogic constant oldDao = INounsDAOLogic(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
 INounsDAOLogic constant dao = INounsDAOLogic(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
 // Post proposal 356, the timelock has moved to the new executor
 INounsTimelock constant timelock = INounsTimelock(payable(0xb1a32FC9F9D8b2cf86C068Cae13108809547ef71));
@@ -180,7 +178,7 @@ contract ProposalTest is Test {
         uint256[] memory values = new uint256[](6);
         string[] memory signatures = new string[](6);
         bytes[] memory calldatas = new bytes[](6);
-        string memory description = "Swap 500 wstETH for rETH";
+        string memory description = vm.readFile("proposal.txt");
 
         (bytes memory initializer, address STAGING_SAFE) = getSafe(RECEIVER, SALT_NONCE);
         uint256 stETHAmount = IWstETH(wstETH).getStETHByWstETH(tradeSize());

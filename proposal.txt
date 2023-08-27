@@ -1,0 +1,77 @@
+## Description
+
+Following the [recent proposal](https://nouns.wtf/vote/320) to test CronFi’s TWAMM solution for [LST diversification](https://etherscan.io/address/0x0BC3807Ec262cB779b38D65b38158acC3bfedE10) of Nouns treasury, we at CoW Protocol would like to propose testing execution using our unique batch auction process before proceeding with the full 7k ETH amount. 
+
+There’s been interest in diversifying [Nouns DAO treasury](https://etherscan.io/address/0x0BC3807Ec262cB779b38D65b38158acC3bfedE10), specifically stETH→rETH. Recently some twitter avatars have [posted](https://twitter.com/0x70626a/status/1684936056443969536) a good analysis of the 500 ETH TWAMM trade, specifically, that the trade resulted in 518.51 rETH received for 500 wstETH (a whopping 1.25% slippage for a stable swap!). We believe CoW Protocol will provide a much more competitive execution price, that is compatible with fair market prices.
+
+## Background
+
+CoW Protocol has been using a multi-token batch auction on Ethereum mainnet for over two years, facilitating [>$26.8B of trading volume](https://dune.com/cowprotocol/cowswap). CoW Protocol uniquely allows its users to get best execution prices even with a lax slippage tolerance thanks to 15 competitive solvers participating in an auction mechanism that protects the users by granting the right to execute the trade to the solver offering maximal price improvement.
+
+CoW Protocol is used by a [number of DAOs](https://cow.fi/daos) for their trading operations including ENS, Aave, Nexus Mutual, Gnosis, Karpatkey, Olympus DAO, Badger DAO, Yearn and more. 
+
+## Advantages
+
+CoW Protocol pioneered intent-based trading since its inception in early 2021. This allows users to define order parameters without specifying the actual execution path (`calldata`). Users should expect the most optimised execution route to be chosen by the winning solver at the time of execution. 
+
+## Considerations
+
+Given a sell order of 500 wstETH→rETH there are several options for order placement that can provide different properties. We'll focus on a *TWAP* order setup although it seems to not be necessary in a smaller 500 ETH trade - the purpose is to demonstrate how a larger order could be set up.
+
+For a 500 wstETH→rETH we propose to use a TWAP order of 5 equal parts worth 100 wstETH each. This may result in an execution up to 525 rETH.
+![](https://hackmd.io/_uploads/BJfUbBKo2.png)
+
+### `TWAP` Conditional order
+
+* Launch date: August 17th, 2023. [See twitter post.](https://twitter.com/CoWSwap/status/1692152855694803112?s=20)
+* Transactional volume: ~$1.7M. [See dune query](https://dune.com/cowprotocol/cow-swap-limit-orders-kpis).
+
+The TWAP [implementation](https://github.com/cowprotocol/composable-cow) uses a constant limit price across each. Given the stability of wstETH→rETH, the limit price may be set in advance with a high confidence that this will be representative at the time the proposal is executed (and for the duration of the TWAP).
+
+Order parameters suggested for this proposal:
+* Limit price: 1 wstETH = 1.038 rETH. This includes 1% slippage tolerance to allow for charging a fee from the sell token and to get higher confidence in execution. **It is still expected to be executed with a much lower slippage in practice.** See the above mentioned dune dashboard's *'order surplus'* whereby the order's slippage is protected.
+* 5 equal parts of 100 wstETH
+* Time intervals of two hours between parts 
+
+## Methodology
+
+To achieve this TWAP, the proposed transaction bundle will:
+
+1. Wrap the required `stETH` to `wstETH` so that it may be traded.
+2. Create a `Safe` owned by the DAO treasury that is used as a staging contract for the TWAP.
+3. Trigger the TWAP, with the resulting `rETH` from each swap being sent directly back to the DAO treasury.
+
+### Use of `Safe`
+
+* Developers: `Safe`
+* Audits: [See their Github Repository](https://github.com/safe-global/safe-contracts/tree/af488f0a649a3be2ea01e0f7a6af1587d0250c2d/docs).
+
+The `Safe` is used as a staging area for the funds used in the TWAP. As CoW Protocol uses intent based trading, the `owner` of the order needs to sign their intent (done using a private key for an `EOA`, done using [EIP-1271](https://eips.ethereum.org/EIPS/eip-1271) for a smart contract). 
+
+With this requirement in mind, the DAO treasury contract for Nouns doesn't support EIP-1271. This is why a `Safe` is used in combination with `ComposableCoW` (detailed below).
+
+The `Safe` that is created in the proposal bundle **ensures that the only owner is set to the DAO Treasury**. At all times, the funds remain under the direct control of the DAO treasury with the same timelock conditions.
+
+#### Execution Risk
+
+In the transaction bundle funds are sent atomically to a newly created `Safe`. This means that the `Safe`'s address needs to be calculated beforehand. This is done using `CREATE2` logic, therefore the `Safe` is created at a deterministic address. The flow:
+
+1. DAO Treasury sets an approval on `wstETH` for the to-be-created `Safe`.
+2. The `Safe` is created and initialised.
+3. The funds are **PULLED** from the DAO Treasury to the `Safe`.
+
+Critically, with the above methodology there is *no ability for funds to be sent to an address where they are not retrievable*.
+
+### Use of `ComposableCoW` / `TWAP`
+
+* Developer: mfw78 (funded by CowDAO Grants Program, and now a [Core Contributor to CoW Protocol](https://snapshot.org/#/cowgrants.eth/proposal/0x0202a88c6792d1bd1e534cf1da94769130f495e72247e666b4afff8b22da9db0)).
+* Audits (jointly funded by `Safe` and CoW Protocol): [Ackee](https://github.com/cowprotocol/composable-cow/blob/main/audits/ackee-blockchain-cow-protocol-composablecow-extensiblefallbackhandler-report-1.2.pdf), [Gnosis Internal](https://github.com/cowprotocol/composable-cow/blob/main/audits/gnosis-ComposableCoWMayJul2023.pdf).
+* Other: Repository recently on-boarded to [CoW Protocol GitHub organisation](https://github.com/cowprotocol/).
+
+`ComposableCoW` is a conditional smart order framework that was [incubated by the CoW Grants Program](https://snapshot.org/#/cowgrants.eth/proposal/0xb7815ca1f5aea2ec537295fd452332680eb1be379f3356950dc8ba151d83f9c5). `TWAP` is an order type implemented in the `ComposableCoW` framework. The contracts are thoroughly tested and audited. To date, volume processed exceeds $1.7M.
+
+Using `ComposableCoW`, a smart contract (such as the `Safe` deployed in the proposal) is able to autonomously indicate its intent to trade. This intent is monitored by a *Watch Tower* (currently a Tenderly Web3 Action, deployed by the CoW Protocol team), with the intent relayed to the CoW Protocol API. In this framework - for TWAP, unlike `Milkman` - the smart contract specifies the *entire order structure to be submitted to the API*. There are no trust assumptions placed in the Watch Tower (besides the Watch Tower not running, leading to a griefing attack, but CoW Protocol for reputational reasons are incentivised to keep the Watch Tower operational).
+
+#### Differences compared to `Milkman`
+
+Both were funded by the CoW Protocol Grants Program. `Milkman` seeks to solve the issue of an autonomous swap from ABC→XYZ tokens, whereas `ComposableCoW` provides an entire framework for producing *conditional* orders. TWAP is an example of a conditional order built with this framework - allowing a large trade to settle in multiple parts over time, minimising price impact.
