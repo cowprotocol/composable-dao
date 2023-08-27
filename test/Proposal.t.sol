@@ -33,42 +33,11 @@ import {GPv2Interaction} from "composable/lib/cowprotocol/src/contracts/librarie
 import {GPv2Signing} from "composable/lib/cowprotocol/src/contracts/mixins/GPv2Signing.sol";
 import {GPv2AllowListAuthentication} from "composable/lib/cowprotocol/src/contracts/GPv2AllowListAuthentication.sol";
 
-// DAO interfaces
-interface INounsDAOLogic {
-    function execute(uint256 proposalId) external;
-    function _setProposalThresholdBPS(uint256 newProposalThresholdBPS) external;
-    function _setMinQuorumVotesBPS(uint16 newMinQuorumVotesBPS) external;
-    function propose(
-        address[] memory targets,
-        uint256[] memory values,
-        string[] memory signatures,
-        bytes[] memory calldatas,
-        string memory description
-    ) external returns (uint256);
-    function proposeOnTimelockV1(
-        address[] memory targets,
-        uint256[] memory values,
-        string[] memory signatures,
-        bytes[] memory calldatas,
-        string memory description
-    ) external returns (uint256);
-    function castVote(uint256 proposalId, uint8 support) external;
-    function queue(uint256 proposalId) external;
-    function votingDelay() external view returns (uint256);
-    function votingPeriod() external view returns (uint256);
-}
-
-interface INounsTimelock {
-    function delay() external view returns (uint256);
-}
-
-interface INounsToken {
-    function mint() external returns (uint256);
-    function transferFrom(address from, address to, uint256 tokenId) external;
-}
-
 // Misc Tokens
 import {IWstETH} from "../src/interfaces/IWstETH.sol";
+
+// NounsDAO Specifics
+import "../src/interfaces/NounsDAOContracts.sol";
 
 // --- constants
 
@@ -89,7 +58,7 @@ GPv2AllowListAuthentication constant allowList = GPv2AllowListAuthentication(0x2
 
 // DAO + DAO Token
 // The oldDao and dao are the same address, it's just the logic contract that has been upgraded
-INounsDAOLogic constant oldDao = INounsDAOLogic(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
+// INounsDAOLogic constant oldDao = INounsDAOLogic(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
 INounsDAOLogic constant dao = INounsDAOLogic(payable(0x6f3E6272A167e8AcCb32072d08E0957F9c79223d));
 // Post proposal 356, the timelock has moved to the new executor
 INounsTimelock constant timelock = INounsTimelock(payable(0xb1a32FC9F9D8b2cf86C068Cae13108809547ef71));
@@ -136,6 +105,51 @@ contract ProposalTest is Test {
     TestAccount bob = TestAccountLib.createTestAccount("counterParty");
 
     mapping(bytes32 => uint256) public orderFills;
+    address voter;
+
+    function setUp() public {
+        // Current state:
+        // - Proposal 359 will move the last of the NounsDAO TreasuryV1 to the new treasury
+        ProposalCondensed memory propDetails = dao.proposal(359);
+
+        // For the tests, move to the block before we must have enough tokens for voting.
+        vm.roll(propDetails.startBlock - 1);
+
+        // Now we mint enough nouns to be able to create and ram proposals through.
+
+        // Before we propose, set a fake low proposal threshold
+        vm.startPrank(address(timelock));
+        dao._setProposalThresholdBPS(1);
+        dao._setMinQuorumVotesBPS(200);
+        vm.stopPrank();
+
+        voter = address(this);
+
+        // Let's fake being the NounsAuctionHouse and mint ourselves 60% of the nouns
+        vm.startPrank(auctionHouse);
+        for (uint256 i = 0; i < 400; i++) {
+            uint256 id = nouns.mint();
+            nouns.transferFrom(auctionHouse, voter, id);
+        }
+        vm.stopPrank();
+
+        vm.roll(block.number + 1);
+
+        // Now let's vote for the proposal, queue it, and execute it
+        dao.castVote(359, 1);
+
+        // Roll forward by the voting period
+        vm.roll(block.number + dao.votingPeriod());
+
+        // Attempt to queue the proposal
+        dao.queue(359);
+
+        // There's a timelock period to wait for as well, let's warp!
+        vm.warp(block.timestamp + timelock.delay() + 1);
+
+        // Attempt to execute the proposal
+        dao.execute(359);
+    }
 
     /**
      * Customise this function for the order you want to create for the proposal.
@@ -223,28 +237,6 @@ contract ProposalTest is Test {
             "approve(address,uint256)",
             abi.encodeWithSelector(IERC20.approve.selector, STAGING_SAFE, 0)
         );
-
-        // Warp to time to execute proposal 356
-        vm.warp(1693054715);
-        oldDao.execute(356);
-
-        // Before we propose, set a fake low proposal threshold
-        vm.startPrank(address(timelock));
-        dao._setProposalThresholdBPS(1);
-        dao._setMinQuorumVotesBPS(200);
-        vm.stopPrank();
-
-        address voter = address(this);
-
-        // Let's fake being the NounsAuctionHouse and mint ourselves 60% of the nouns
-        vm.startPrank(auctionHouse);
-        for (uint256 i = 0; i < 400; i++) {
-            uint256 id = nouns.mint();
-            nouns.transferFrom(auctionHouse, voter, id);
-        }
-        vm.stopPrank();
-
-        vm.roll(block.number + 1);
 
         // Output the calldata as a string for easy copy-paste
         console2.logBytes(
@@ -351,10 +343,6 @@ contract ProposalTest is Test {
         require(NUM_PARTS < tradeSize());
 
         (bytes memory initializer, address STAGING_SAFE) = getSafe(RECEIVER, SALT_NONCE);
-
-        // Warp to time to execute proposal 356
-        vm.warp(1693054715);
-        oldDao.execute(356);
 
         // Do everything from the timelock
         vm.startPrank(address(timelock));
