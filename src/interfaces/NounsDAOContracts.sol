@@ -47,7 +47,7 @@ interface INounsDAOLogic {
         bytes[] memory calldatas,
         string memory description
     ) external returns (uint256);
-    function proposal(
+    function proposals(
         uint256 proposalId
     ) external view returns (ProposalCondensed memory);
     function proposeOnTimelockV1(
