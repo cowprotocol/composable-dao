@@ -133,7 +133,7 @@ contract ProposalTest is Test {
         }
         vm.stopPrank();
 
-        vm.roll(block.number + 1);
+        vm.roll(block.number + 2);
 
         // Now let's vote for the proposal, queue it, and execute it
         dao.castVote(359, 1);
