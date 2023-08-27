@@ -110,7 +110,7 @@ contract ProposalTest is Test {
     function setUp() public {
         // Current state:
         // - Proposal 359 will move the last of the NounsDAO TreasuryV1 to the new treasury
-        ProposalCondensed memory propDetails = dao.proposal(359);
+        ProposalCondensed memory propDetails = dao.proposals(359);
 
         // For the tests, move to the block before we must have enough tokens for voting.
         vm.roll(propDetails.startBlock - 1);
