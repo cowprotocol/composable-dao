@@ -97,7 +97,7 @@ contract ProposalTest is Test {
     uint256 constant MAX_BPS = 10000;
 
     bytes32 constant CONDITIONAL_ORDER_SALT = keccak256("cows love nouns"); // todo
-    bytes32 constant TWAP_APPDATA = keccak256("need some cool appdata"); // todo
+    bytes32 constant TWAP_APPDATA = bytes32(0xc8879ab78d5d1c6ac89947aed258fc8228f30d633701a57ce7cdc5677f9930e7);
 
     TestAccount solver = TestAccountLib.createTestAccount("solver");
     TestAccount bob = TestAccountLib.createTestAccount("counterParty");
