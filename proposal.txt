@@ -1,3 +1,5 @@
+# (w)stETH to rETH Treasury Diversification 🐮
+
 ## Description
 
 Following the [recent proposal](https://nouns.wtf/vote/320) to test CronFi’s TWAMM solution for [LST diversification](https://etherscan.io/address/0x0BC3807Ec262cB779b38D65b38158acC3bfedE10) of Nouns treasury, we at CoW Protocol would like to propose testing execution using our unique batch auction process before proceeding with the full 7k ETH amount. 
@@ -24,7 +26,7 @@ For a 500 wstETH→rETH we propose to use a TWAP order of 5 equal parts worth 10
 ### `TWAP` Conditional order
 
 * Launch date: August 17th, 2023. [See twitter post.](https://twitter.com/CoWSwap/status/1692152855694803112?s=20)
-* Transactional volume: ~$1.7M. [See dune query](https://dune.com/cowprotocol/cow-swap-limit-orders-kpis).
+* Transactional volume: ~$2.7M. [See dune query](https://dune.com/cowprotocol/cow-swap-limit-orders-kpis).
 
 The TWAP [implementation](https://github.com/cowprotocol/composable-cow) uses a constant limit price across each. Given the stability of wstETH→rETH, the limit price may be set in advance with a high confidence that this will be representative at the time the proposal is executed (and for the duration of the TWAP).
 
@@ -62,6 +64,8 @@ In the transaction bundle funds are sent atomically to a newly created `Safe`. T
 
 Critically, with the above methodology there is *no ability for funds to be sent to an address where they are not retrievable*.
 
+**CAUTION:** This candidate proposal assumes successful passage of [Proposal #359](https://nouns.wtf/vote/359) **AND** no intermediate proposal that interacts with the new treasury's balance of `wstETH`.
+
 ### Use of `ComposableCoW` / `TWAP`
 
 * Developer: mfw78 (funded by CowDAO Grants Program, and now a [Core Contributor to CoW Protocol](https://snapshot.org/#/cowgrants.eth/proposal/0x0202a88c6792d1bd1e534cf1da94769130f495e72247e666b4afff8b22da9db0)).
@@ -75,3 +79,18 @@ Using `ComposableCoW`, a smart contract (such as the `Safe` deployed in the prop
 #### Differences compared to `Milkman`
 
 Both were funded by the CoW Protocol Grants Program. `Milkman` seeks to solve the issue of an autonomous swap from ABC→XYZ tokens, whereas `ComposableCoW` provides an entire framework for producing *conditional* orders. TWAP is an example of a conditional order built with this framework - allowing a large trade to settle in multiple parts over time, minimising price impact.
+
+## Proposal Operations
+
+The operations in the proposal are:
+
+1. Approve the required amount of `stETH` for wrapping into `wstETH`.
+2. Wrap `stETH` into `wstETH`.
+3. Approve the to-be-created Safe to use the Executor's `wstETH`.
+4. Create the trading `Safe` (owner: Exector, owners: 1).
+5. Configure the `Safe`:
+    i. Set `ComposableCoW` as the domain verifier for `GPv2Settlement` (CoW Protocol signing).
+    ii. Set the allowance for `GPv2VaultRelayer` to spend `wstETH` held by the `Safe`.
+    iii. Use `transferFrom` to pull funds from the `Executor` which what was already approved at (3).
+    iv. Create the `TWAP` order
+6. Confirm revocation of all allowances that were given to the `Safe` by the `Executor`.
