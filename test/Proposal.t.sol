@@ -61,6 +61,7 @@ INounsDAOLogic constant dao = INounsDAOLogic(payable(0x6f3E6272A167e8AcCb32072d0
 // Post proposal 356, the timelock has moved to the new executor
 INounsTimelock constant timelock = INounsTimelock(payable(0xb1a32FC9F9D8b2cf86C068Cae13108809547ef71));
 INounsToken constant nouns = INounsToken(0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03);
+INounsData constant nounsData = INounsData(0xf790A5f59678dd733fb3De93493A91f472ca1365);
 address constant auctionHouse = 0x830BD73E4184ceF73443C15111a1DF14e495C706;
 
 // Tokens
@@ -236,18 +237,19 @@ contract ProposalTest is Test {
             abi.encodeWithSelector(IERC20.approve.selector, STAGING_SAFE, 0)
         );
 
-        // Output the individual transactions for easy copy-paste.
-        for (uint256 i = 0; i < targets.length; i++) {
-            console2.log(signatures[i]);
-            console2.log(targets[i]);
-            console2.log(values[i]);
-            console2.logBytes(calldatas[i]);
-        }
-
-        // Output the calldata as a string for easy copy-paste
-        // console2.logBytes(
-        //     abi.encodeWithSelector(dao.propose.selector, targets, values, signatures, calldatas, description)
-        // );
+        // We are going to do the proposal here to make it a candidate proposal.
+        console2.logBytes(
+            abi.encodeWithSelector(
+                nounsData.createProposalCandidate.selector,
+                targets,
+                values,
+                signatures,
+                calldatas,
+                description,
+                "wsteth-to-reth-treasury-diversification",
+                0
+            )
+        );
 
         // Can use our own account and ram it through now!
         uint256 proposalId = dao.propose(targets, values, signatures, calldatas, description);

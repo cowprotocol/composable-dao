@@ -71,3 +71,15 @@ interface INounsToken {
     function mint() external returns (uint256);
     function transferFrom(address from, address to, uint256 tokenId) external;
 }
+
+interface INounsData {
+    function createProposalCandidate(
+        address[] memory targets,
+        uint256[] memory values,
+        string[] memory signatures,
+        bytes[] memory calldatas,
+        string memory description,
+        string memory slug,
+        uint256 proposalIdToUpdate
+    ) external payable;
+}
