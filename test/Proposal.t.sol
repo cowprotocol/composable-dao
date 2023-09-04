@@ -236,10 +236,18 @@ contract ProposalTest is Test {
             abi.encodeWithSelector(IERC20.approve.selector, STAGING_SAFE, 0)
         );
 
+        // Output the individual transactions for easy copy-paste.
+        for (uint256 i = 0; i < targets.length; i++) {
+            console2.log(signatures[i]);
+            console2.log(targets[i]);
+            console2.log(values[i]);
+            console2.logBytes(calldatas[i]);
+        }
+
         // Output the calldata as a string for easy copy-paste
-        console2.logBytes(
-            abi.encodeWithSelector(dao.propose.selector, targets, values, signatures, calldatas, description)
-        );
+        // console2.logBytes(
+        //     abi.encodeWithSelector(dao.propose.selector, targets, values, signatures, calldatas, description)
+        // );
 
         // Can use our own account and ram it through now!
         uint256 proposalId = dao.propose(targets, values, signatures, calldatas, description);
